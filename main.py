@@ -117,6 +117,23 @@ def parse_arguments():
         help='詳細ログを出力'
     )
     
+    parser.add_argument(
+        '--show-all-methods',
+        action='store_true',
+        help='クラスの全メソッドを表示（--classと組み合わせて使用）'
+    )
+    
+    parser.add_argument(
+        '--show-all-imports',
+        action='store_true',
+        help='クラスの全インポートを表示（--classと組み合わせて使用）'
+    )
+    
+    parser.add_argument(
+        '--trace-dependencies',
+        help='特定クラス.メソッドの依存関係を追跡解析（例: DataAccessUtil.checkUserExists）'
+    )
+    
     return parser.parse_args()
 
 
@@ -217,7 +234,7 @@ def analyze_class_index(indexer: MultiSourceClassIndexer, args):
     # 特定クラスの詳細表示
     if getattr(args, 'class'):
         print(f"\n🔍 クラス詳細情報: {getattr(args, 'class')}")
-        display_class_details(indexer, getattr(args, 'class'))
+        display_class_details(indexer, getattr(args, 'class'), args.show_all_methods, args.show_all_imports)
     
     # メソッド検索
     if args.method:
@@ -228,9 +245,14 @@ def analyze_class_index(indexer: MultiSourceClassIndexer, args):
     if args.inheritance:
         print(f"\n🔍 継承関係分析: {args.inheritance}")
         analyze_inheritance(indexer, args.inheritance)
+    
+    # 依存関係追跡
+    if args.trace_dependencies:
+        print(f"\n🔍 依存関係追跡: {args.trace_dependencies}")
+        trace_method_dependencies(indexer, args.trace_dependencies)
 
 
-def display_class_details(indexer: MultiSourceClassIndexer, class_name: str):
+def display_class_details(indexer: MultiSourceClassIndexer, class_name: str, show_all_methods: bool = False, show_all_imports: bool = False):
     """特定クラスの詳細情報を表示"""
     
     # クラス検索
@@ -248,12 +270,20 @@ def display_class_details(indexer: MultiSourceClassIndexer, class_name: str):
     if class_info.methods:
         print(f"   🔧 メソッド数: {len(class_info.methods)}")
         print("   📋 メソッド一覧:")
-        for method_name, method_info in list(class_info.methods.items())[:10]:
-            params = ', '.join(method_info.parameters)
-            print(f"      - {method_info.return_type} {method_name}({params})")
         
-        if len(class_info.methods) > 10:
-            print(f"      ... 他 {len(class_info.methods) - 10} メソッド")
+        if show_all_methods:
+            # 全メソッドを表示
+            for method_name, method_info in class_info.methods.items():
+                params = ', '.join(method_info.parameters)
+                print(f"      - {method_info.return_type} {method_name}({params})")
+        else:
+            # 最初の10個のみ表示
+            for method_name, method_info in list(class_info.methods.items())[:10]:
+                params = ', '.join(method_info.parameters)
+                print(f"      - {method_info.return_type} {method_name}({params})")
+            
+            if len(class_info.methods) > 10:
+                print(f"      ... 他 {len(class_info.methods) - 10} メソッド（--show-all-methodsで全表示）")
     
     # インポート一覧
     if class_info.imports:
@@ -297,6 +327,282 @@ def analyze_inheritance(indexer: MultiSourceClassIndexer, base_class: str):
     
     print(f"   ℹ️  継承関係の分析は将来的に実装予定です")
     print(f"   📋 現在のクラスインデックスには継承情報が含まれていません")
+
+
+def trace_method_dependencies(indexer: MultiSourceClassIndexer, target_spec: str):
+    """特定メソッドの依存関係を詳細追跡"""
+    
+    # Step 1: クラス.メソッド形式の解析
+    if '.' in target_spec:
+        class_name, method_name = target_spec.split('.', 1)
+    else:
+        class_name = target_spec
+        method_name = None
+    
+    # Step 2: クラス情報取得
+    class_info = indexer.get_class_info(class_name)
+    if not class_info:
+        print(f"   ⚠️  クラス '{class_name}' が見つかりませんでした")
+        return
+    
+    print(f"   📄 解析対象: {class_info.file_path}")
+    print(f"   📦 パッケージ: {class_info.package_name}")
+    
+    if method_name:
+        if method_name not in class_info.methods:
+            print(f"   ⚠️  メソッド '{method_name}' が見つかりませんでした")
+            return
+        print(f"   🎯 対象メソッド: {method_name}")
+    else:
+        print(f"   🎯 対象: クラス全体")
+    
+    # Step 3: ファイル内容を詳細解析
+    try:
+        with open(class_info.file_path, 'r', encoding='utf-8') as f:
+            file_content = f.read()
+        
+        print(f"   🔍 メソッド呼び出し解析開始...")
+        
+        # Step 4: メソッド呼び出しパターンを抽出（特定メソッド内のみ）
+        if method_name:
+            method_calls = extract_method_calls_from_specific_method(file_content, method_name, class_info.imports)
+        else:
+            method_calls = extract_method_calls(file_content, class_info.imports)
+        
+        if method_calls:
+            print(f"   📋 発見されたメソッド呼び出し: {len(method_calls)}個")
+            
+            # Step 5: 呼び出し先をクラスインデックスで解決
+            resolved_calls = resolve_method_calls(indexer, method_calls, class_info.imports)
+            
+            # Step 6: 結果表示
+            display_dependency_trace(resolved_calls)
+        else:
+            print(f"   ⚠️  メソッド呼び出しが見つかりませんでした")
+            
+    except Exception as e:
+        print(f"   ❌ ファイル解析エラー: {e}")
+
+
+def extract_method_calls_from_specific_method(file_content: str, target_method: str, imports: list) -> list:
+    """特定メソッド内からのみメソッド呼び出しを抽出"""
+    import re
+    
+    # Step 1: 特定メソッドの範囲を特定
+    method_body = extract_method_body(file_content, target_method)
+    if not method_body:
+        return []
+    
+    # Step 2: そのメソッド内のメソッド呼び出しを抽出
+    return extract_method_calls(method_body, imports)
+
+
+def extract_method_body(file_content: str, method_name: str) -> str:
+    """特定メソッドのボディ部分を抽出"""
+    import re
+    
+    # メソッド定義の開始を探す
+    # パターン: public/private/static などのキーワードに続くメソッド名
+    method_pattern = rf'(public|private|protected|static|\s)+.*?\b{re.escape(method_name)}\s*\([^)]*\)\s*\{{'
+    
+    lines = file_content.split('\n')
+    method_start_line = -1
+    
+    # メソッド開始行を見つける
+    for i, line in enumerate(lines):
+        if re.search(method_pattern, line):
+            method_start_line = i
+            break
+    
+    if method_start_line == -1:
+        return ""
+    
+    # 中括弧のバランスを取ってメソッド終了を見つける
+    brace_count = 0
+    method_end_line = -1
+    started = False
+    
+    for i in range(method_start_line, len(lines)):
+        line = lines[i]
+        
+        # 文字列リテラル内の中括弧は無視（簡易版）
+        line_without_strings = re.sub(r'"[^"]*"', '""', line)
+        
+        for char in line_without_strings:
+            if char == '{':
+                brace_count += 1
+                started = True
+            elif char == '}':
+                brace_count -= 1
+                
+                if started and brace_count == 0:
+                    method_end_line = i
+                    break
+        
+        if method_end_line != -1:
+            break
+    
+    if method_end_line == -1:
+        return ""
+    
+    # メソッドボディを抽出
+    method_lines = lines[method_start_line:method_end_line + 1]
+    return '\n'.join(method_lines)
+
+
+def extract_method_calls(file_content: str, imports: list) -> list:
+    """ファイル内容からメソッド呼び出しを抽出"""
+    import re
+    
+    method_calls = []
+    
+    # パターン1: object.method() 形式
+    pattern1 = re.compile(r'(\w+)\.(\w+)\s*\(')
+    matches1 = pattern1.findall(file_content)
+    
+    for obj_name, method_name in matches1:
+        method_calls.append({
+            'type': 'instance_call',
+            'object': obj_name,
+            'method': method_name,
+            'pattern': f"{obj_name}.{method_name}()"
+        })
+    
+    # パターン2: new ClassName() 形式
+    pattern2 = re.compile(r'new\s+(\w+)\s*\(')
+    matches2 = pattern2.findall(file_content)
+    
+    for class_name in matches2:
+        method_calls.append({
+            'type': 'constructor_call',
+            'class': class_name,
+            'method': class_name,
+            'pattern': f"new {class_name}()"
+        })
+    
+    return method_calls
+
+
+def resolve_method_calls(indexer: MultiSourceClassIndexer, method_calls: list, imports: list) -> list:
+    """メソッド呼び出しをクラスインデックスで解決"""
+    
+    resolved = []
+    
+    for call in method_calls:
+        if call['type'] == 'constructor_call':
+            # コンストラクタ呼び出しの解決
+            class_name = call['class']
+            
+            # インポートから完全クラス名を探す
+            full_class_name = None
+            for imp in imports:
+                if imp.endswith('.' + class_name):
+                    full_class_name = imp
+                    break
+            
+            if not full_class_name:
+                full_class_name = class_name
+            
+            # クラス情報を取得
+            target_class_info = indexer.get_class_info(class_name)
+            if target_class_info:
+                resolved.append({
+                    'call_pattern': call['pattern'],
+                    'target_class': class_name,
+                    'target_method': 'constructor',
+                    'target_file': target_class_info.file_path,
+                    'target_package': target_class_info.package_name,
+                    'resolved': True
+                })
+            else:
+                resolved.append({
+                    'call_pattern': call['pattern'],
+                    'target_class': class_name,
+                    'resolved': False
+                })
+        
+        elif call['type'] == 'instance_call':
+            # インスタンスメソッド呼び出しの解決
+            obj_name = call['object']
+            method_name = call['method']
+            
+            # オブジェクト名からクラス名を推測（簡易版）
+            guessed_class = guess_class_from_object_name(obj_name, imports)
+            
+            if guessed_class:
+                target_class_info = indexer.get_class_info(guessed_class)
+                if target_class_info and method_name in target_class_info.methods:
+                    resolved.append({
+                        'call_pattern': call['pattern'],
+                        'target_class': guessed_class,
+                        'target_method': method_name,
+                        'target_file': target_class_info.file_path,
+                        'target_package': target_class_info.package_name,
+                        'resolved': True
+                    })
+                else:
+                    resolved.append({
+                        'call_pattern': call['pattern'],
+                        'target_class': guessed_class,
+                        'target_method': method_name,
+                        'resolved': False
+                    })
+            else:
+                resolved.append({
+                    'call_pattern': call['pattern'],
+                    'resolved': False
+                })
+    
+    return resolved
+
+
+def guess_class_from_object_name(obj_name: str, imports: list) -> str:
+    """オブジェクト名からクラス名を推測"""
+    
+    # よくあるパターン: userEntityManager → UserEntityManager
+    if 'entitymanager' in obj_name.lower():
+        for imp in imports:
+            if 'EntityManager' in imp:
+                return imp.split('.')[-1]
+    
+    if 'ormapper' in obj_name.lower():
+        for imp in imports:
+            if 'ORMapper' in imp:
+                return imp.split('.')[-1]
+    
+    if 'service' in obj_name.lower():
+        for imp in imports:
+            if 'Service' in imp:
+                return imp.split('.')[-1]
+    
+    # その他のパターンも追加可能
+    return None
+
+
+def display_dependency_trace(resolved_calls: list):
+    """依存関係追跡結果を表示"""
+    
+    resolved_count = len([call for call in resolved_calls if call.get('resolved', False)])
+    total_count = len(resolved_calls)
+    
+    print(f"   📊 解決結果: {resolved_count}/{total_count} 個のメソッド呼び出しを解決")
+    print()
+    
+    if resolved_count > 0:
+        print("   ✅ 解決済み依存関係:")
+        for call in resolved_calls:
+            if call.get('resolved', False):
+                print(f"      📞 {call['call_pattern']}")
+                print(f"         → {call['target_class']}.{call['target_method']}")
+                print(f"         📄 {call['target_file']}")
+                print()
+    
+    unresolved_calls = [call for call in resolved_calls if not call.get('resolved', False)]
+    if unresolved_calls:
+        print("   ⚠️  未解決の呼び出し:")
+        for call in unresolved_calls:
+            print(f"      ❓ {call['call_pattern']}")
+        print()
     
 
 if __name__ == "__main__":
