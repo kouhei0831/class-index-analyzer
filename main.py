@@ -47,7 +47,7 @@ def main():
         
         # Step 2: 特化クラスインデックス構築
         print("\n🔍 Step 2: 特化クラスインデックス構築")
-        specialized_index = build_specialized_index(base_indexer, class_name, args.max_depth)
+        specialized_index = build_specialized_index(base_indexer, class_name, args.max_depth, args.show_method_source)
         
         # Step 3: 結果表示
         print("\n📊 Step 3: 結果表示")
@@ -72,6 +72,9 @@ def parse_arguments():
 使用例:
   # 特定のJavaファイルから再帰的インデックス構築
   python main.py DataAccessUtil.java --settings test_settings.json
+  
+  # メソッド定義の詳細検索（ソースコード表示）
+  python main.py DataAccessUtil.java --settings test_settings.json --show-method-source
         """
     )
     
@@ -91,6 +94,12 @@ def parse_arguments():
         type=int,
         default=5,
         help='再帰探索の最大深度（デフォルト: 5）'
+    )
+    
+    parser.add_argument(
+        '--show-method-source',
+        action='store_true',
+        help='メソッド定義のソースコードも表示'
     )
     
     return parser.parse_args()
@@ -163,7 +172,7 @@ def build_base_class_index(args) -> MultiSourceClassIndexer:
     return indexer
 
 
-def build_specialized_index(base_indexer: MultiSourceClassIndexer, start_class: str, max_depth: int) -> dict:
+def build_specialized_index(base_indexer: MultiSourceClassIndexer, start_class: str, max_depth: int, show_method_source: bool = False) -> dict:
     """特定クラスから再帰的に探索した特化インデックスを構築（メソッド単位）"""
     
     specialized_index = {}
@@ -179,14 +188,14 @@ def build_specialized_index(base_indexer: MultiSourceClassIndexer, start_class: 
         return specialized_index
     
     # 起点ファイルの全メソッドを探索対象とする
-    _build_recursive_from_start_file(base_indexer, start_class_info, 0, max_depth, visited_methods, specialized_index)
+    _build_recursive_from_start_file(base_indexer, start_class_info, 0, max_depth, visited_methods, specialized_index, show_method_source)
     
     print(f"   📦 特化インデックス構築完了: {len(specialized_index)}クラス")
     
     return specialized_index
 
 
-def _build_recursive_from_start_file(base_indexer: MultiSourceClassIndexer, start_class_info, current_depth: int, max_depth: int, visited_methods: set, specialized_index: dict):
+def _build_recursive_from_start_file(base_indexer: MultiSourceClassIndexer, start_class_info, current_depth: int, max_depth: int, visited_methods: set, specialized_index: dict, show_method_source: bool = False):
     """起点ファイルの全メソッドから再帰的探索を開始"""
     
     if current_depth >= max_depth:
@@ -228,6 +237,17 @@ def _build_recursive_from_start_file(base_indexer: MultiSourceClassIndexer, star
         print(f"   {'  ' * current_depth}    {', '.join(sorted_methods)}")
         if len(method_names) > 10:
             print(f"   {'  ' * current_depth}    ... 他{len(method_names) - 10}個")
+        
+        # 🆕 メソッド定義検索オプション
+        if len(method_names) <= 25:  # 詳細検索実行
+            from smart_method_finder import batch_find_method_definitions
+            print(f"   {'  ' * current_depth}  🔍 メソッド定義検索を実行中...")
+            results = batch_find_method_definitions(list(method_names), start_class_info.imports, base_indexer, show_method_source)
+            
+            # 一意特定できたメソッドの数を表示
+            unique_count = len([name for name, candidates in results.items() if len(candidates) == 1])
+            if unique_count > 0:
+                print(f"   {'  ' * current_depth}  ✅ {unique_count}/{len(method_names)}個のメソッド定義を一意特定")
         
         resolved_calls = resolve_method_calls(base_indexer, method_calls, start_class_info.imports)
         
