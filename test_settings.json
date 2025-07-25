@@ -1,0 +1,9 @@
+{
+    "files.autoGuessEncoding": true,
+    "java.project.sourcePaths": [
+        "test_java_src"
+    ],
+    "java.project.referencedLibraries": [
+        "lib/**/*.jar"
+    ]
+}

@@ -53,6 +53,9 @@ def parse_arguments():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 使用例:
+  # 設定ファイルのみで解析
+  python main.py --settings .vscode/settings.json
+  
   # 基本的な解析
   python main.py /path/to/java/src
   
@@ -60,22 +63,20 @@ def parse_arguments():
   python main.py /path/to/java/src --settings .vscode/settings.json
   
   # 特定クラスの詳細情報表示
-  python main.py /path/to/java/src --class EventEntity
+  python main.py --settings .vscode/settings.json --class EventEntity
   
   # メソッド検索
-  python main.py /path/to/java/src --method insert
-  
-  # 継承関係の分析
-  python main.py /path/to/java/src --inheritance BaseClass
+  python main.py --settings .vscode/settings.json --method insert
   
   # キャッシュ無効化
-  python main.py /path/to/java/src --no-cache
+  python main.py --settings .vscode/settings.json --no-cache
         """
     )
     
     parser.add_argument(
         'directory',
-        help='解析対象のJavaソースディレクトリ'
+        nargs='?',
+        help='解析対象のJavaソースディレクトリ（--settings使用時は省略可）'
     )
     
     parser.add_argument(
@@ -141,10 +142,17 @@ def build_class_index(args) -> MultiSourceClassIndexer:
             
         except Exception as e:
             print(f"⚠️  設定ファイル読み込みエラー: {e}")
-            print("   → デフォルトのディレクトリ指定を使用")
+            if args.directory:
+                print("   → コマンドライン指定ディレクトリを使用")
+    elif args.settings:
+        print(f"❌ 設定ファイルが見つかりません: {args.settings}")
+        if not args.directory:
+            raise Exception("設定ファイルが見つからず、ディレクトリも指定されていません")
     
     # フォールバック：コマンドライン引数のディレクトリを使用
     if not source_paths:
+        if not args.directory:
+            raise Exception("解析対象のソースパスが指定されていません。--settingsまたはdirectoryを指定してください")
         source_paths = [args.directory]
         print(f"📁 コマンドライン指定ディレクトリを使用: {args.directory}")
     
@@ -207,9 +215,9 @@ def analyze_class_index(indexer: MultiSourceClassIndexer, args):
         print(f"      - {source_path}: {count}クラス")
     
     # 特定クラスの詳細表示
-    if args.class:
-        print(f"\n🔍 クラス詳細情報: {args.class}")
-        display_class_details(indexer, args.class)
+    if getattr(args, 'class'):
+        print(f"\n🔍 クラス詳細情報: {getattr(args, 'class')}")
+        display_class_details(indexer, getattr(args, 'class'))
     
     # メソッド検索
     if args.method:

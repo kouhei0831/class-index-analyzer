@@ -200,6 +200,12 @@ class MultiSourceClassIndexer:
         
         return None
     
+    def get_class_info(self, class_name: str) -> ClassInfo:
+        """クラス情報を取得"""
+        if hasattr(self, 'class_index') and self.class_index:
+            return self.search_class(self.class_index, class_name)
+        return None
+    
     def debug_print_index(self, all_classes: Dict[str, ClassInfo], max_entries: int = 10):
         """デバッグ用：インデックス内容を出力"""
         print(f"\n🔍 クラスインデックス内容（最初の{max_entries}件）:")
