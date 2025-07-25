@@ -215,6 +215,9 @@ def _build_recursive_from_start_file(base_indexer: MultiSourceClassIndexer, star
         
         # ファイル全体からメソッド呼び出しを抽出
         method_calls = extract_method_calls(file_content, start_class_info.imports)
+        print(f"   {'  ' * current_depth}  🔍 検出メソッド呼び出し: {len(method_calls)}個")
+        for call in method_calls[:5]:  # 最初の5個を表示
+            print(f"   {'  ' * current_depth}    - {call.get('pattern', 'N/A')}")
         resolved_calls = resolve_method_calls(base_indexer, method_calls, start_class_info.imports)
         
         # 解決できた依存関係を探索
@@ -433,7 +436,79 @@ def extract_method_body(file_content: str, method_name: str) -> str:
 
 
 def extract_method_calls(file_content: str, imports: list) -> list:
-    """ファイル内容からメソッド呼び出しを抽出"""
+    """javalangを使ってファイル内容からメソッド呼び出しを抽出"""
+    import javalang
+    
+    method_calls = []
+    
+    try:
+        # JavaコードをASTに変換
+        tree = javalang.parse.parse(file_content)
+        
+        # ASTを走査してメソッド呼び出しを抽出
+        for _, node in tree.filter(javalang.tree.MethodInvocation):
+            if hasattr(node, 'qualifier') and node.qualifier:
+                # object.method() 形式
+                obj_name = None
+                
+                # 様々な修飾子のタイプを処理
+                if hasattr(node.qualifier, 'name'):
+                    # 単純な変数参照: userEntityManager.find()
+                    obj_name = node.qualifier.name
+                elif hasattr(node.qualifier, 'member'):
+                    # フィールドアクセス: this.manager.find()
+                    obj_name = node.qualifier.member
+                elif hasattr(node.qualifier, 'type'):
+                    # 型参照: ClassName.staticMethod()
+                    if hasattr(node.qualifier.type, 'name'):
+                        obj_name = node.qualifier.type.name
+                
+                if obj_name:
+                    method_name = node.member
+                    method_calls.append({
+                        'type': 'instance_call',
+                        'object': obj_name,
+                        'method': method_name,
+                        'pattern': f"{obj_name}.{method_name}()"
+                    })
+                else:
+                    # 解析できない修飾子の場合
+                    method_name = node.member
+                    method_calls.append({
+                        'type': 'unknown_call',
+                        'method': method_name,
+                        'pattern': f"?.{method_name}()",
+                        'qualifier': str(type(node.qualifier))
+                    })
+            else:
+                # 直接メソッド呼び出し this.method() or method()
+                method_name = node.member
+                method_calls.append({
+                    'type': 'local_call',
+                    'method': method_name,
+                    'pattern': f"{method_name}()"
+                })
+        
+        # コンストラクタ呼び出しを抽出
+        for _, node in tree.filter(javalang.tree.ClassCreator):
+            class_name = node.type.name
+            method_calls.append({
+                'type': 'constructor_call',
+                'class': class_name,
+                'method': 'constructor',
+                'pattern': f"new {class_name}()"
+            })
+    
+    except Exception as e:
+        print(f"      ⚠️ javalang解析エラー、フォールバック実行: {e}")
+        # フォールバック：正規表現ベース
+        return extract_method_calls_regex_fallback(file_content, imports)
+    
+    return method_calls
+
+
+def extract_method_calls_regex_fallback(file_content: str, imports: list) -> list:
+    """正規表現ベースのフォールバック実装"""
     import re
     
     method_calls = []
@@ -458,7 +533,7 @@ def extract_method_calls(file_content: str, imports: list) -> list:
         method_calls.append({
             'type': 'constructor_call',
             'class': class_name,
-            'method': class_name,
+            'method': 'constructor',
             'pattern': f"new {class_name}()"
         })
     
