@@ -211,8 +211,8 @@ def _build_recursive(base_indexer: MultiSourceClassIndexer, target_class: str, c
     
     # ファイル内容を解析してメソッド呼び出しを抽出
     try:
-        with open(class_info.file_path, 'r', encoding='utf-8') as f:
-            file_content = f.read()
+        from utils import read_file_with_encoding
+        file_content = read_file_with_encoding(class_info.file_path)
         
         # メソッド呼び出しを抽出
         method_calls = extract_method_calls(file_content, class_info.imports)
