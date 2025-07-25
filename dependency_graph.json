@@ -1,0 +1,64 @@
+{
+  "nodes": [
+    {
+      "id": "checkUserExists",
+      "in_degree": 0,
+      "out_degree": 1,
+      "class_name": "DataAccessUtil",
+      "file_path": "DataAccessUtil.java"
+    },
+    {
+      "id": "find",
+      "in_degree": 1,
+      "out_degree": 0,
+      "class_name": "UserEntityManager",
+      "file_path": "UserEntityManager.java"
+    },
+    {
+      "id": "validateUserData",
+      "in_degree": 0,
+      "out_degree": 3,
+      "class_name": "DataAccessUtil",
+      "file_path": "DataAccessUtil.java"
+    },
+    {
+      "id": "getName",
+      "in_degree": 1,
+      "out_degree": 0,
+      "class_name": "UserEntity",
+      "file_path": "UserEntity.java"
+    },
+    {
+      "id": "addError",
+      "in_degree": 1,
+      "out_degree": 0,
+      "class_name": "ValidationResult",
+      "file_path": "ValidationResult.java"
+    },
+    {
+      "id": "trim",
+      "in_degree": 1,
+      "out_degree": 0,
+      "class_name": "String",
+      "file_path": "java.lang.String"
+    }
+  ],
+  "edges": [
+    {
+      "source": "checkUserExists",
+      "target": "find"
+    },
+    {
+      "source": "validateUserData",
+      "target": "getName"
+    },
+    {
+      "source": "validateUserData",
+      "target": "trim"
+    },
+    {
+      "source": "validateUserData",
+      "target": "addError"
+    }
+  ]
+}
