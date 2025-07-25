@@ -1,0 +1,50 @@
+🚀 特定Javaファイルから再帰的探索した特化クラスインデックス
+============================================================
+
+📄 起点Javaファイル: /home/khayakawa/ANA/CRUD/source/AiosFullSource/aios_cas/src/jp/co/ana/fmc/ops/boundary/server/atsri/usecasecontrol/AtsriDataReceiveUCControl.java
+🎯 起点クラス名: AtsriDataReceiveUCControl
+📏 最大探索深度: 5
+
+📚 Step 1: 基本クラスインデックス構築
+📄 設定ファイル読み込み: /home/khayakawa/ANA/CRUD/source/.vscode/settings.json
+📁 設定ファイルベースディレクトリ: /home/khayakawa/ANA/CRUD/source
+✅ ソースパス: AiosFullSource/aios_cas/src → /home/khayakawa/ANA/CRUD/source/AiosFullSource/aios_cas/src
+✅ ソースパス: AiosFullSource/cfw_cas/src → /home/khayakawa/ANA/CRUD/source/AiosFullSource/cfw_cas/src
+📦 解決ソースパス: 2個
+📚 解決JARライブラリ: 85個
+📁 設定ファイルから2個のソースパス解決済み
+   ✅ /home/khayakawa/ANA/CRUD/source/AiosFullSource/aios_cas/src
+   ✅ /home/khayakawa/ANA/CRUD/source/AiosFullSource/cfw_cas/src
+🔨 クラスインデックス構築開始...
+   📦 有効なソースパス: /home/khayakawa/ANA/CRUD/source/AiosFullSource/aios_cas/src
+   📦 有効なソースパス: /home/khayakawa/ANA/CRUD/source/AiosFullSource/cfw_cas/src
+   🔨 インデックス構築実行中...
+✅ キャッシュが最新です (キャッシュ: Fri Jul 25 15:38:38 2025)
+🚀 キャッシュからクラスインデックスを読み込み中...
+📦 キャッシュメタデータ:
+   🕒 作成日時: Fri Jul 25 15:38:32 2025
+   📁 ソースパス数: 2
+   📦 総クラス数: 9618
+✅ キャッシュからクラスインデックスを読み込み完了: 39953個のキー
+✅ クラスインデックス構築完了: 39953クラス登録
+
+🔍 Step 2: 特化クラスインデックス構築
+   🎯 起点クラス: AtsriDataReceiveUCControl
+   🔄 再帰的探索開始...
+   ├─ AtsriDataReceiveUCControl (深度: 0)
+     ⚠️ ファイル読み込みエラー: 'utf-8' codec can't decode byte 0x83 in position 139: invalid start byte
+   📦 特化インデックス構築完了: 1クラス
+
+📊 Step 3: 結果表示
+   📦 特化インデックス内容: 1クラス
+
+   📍 AtsriDataReceiveUCControl (深度: 0)
+      📄 /home/khayakawa/ANA/CRUD/source/AiosFullSource/aios_cas/src/jp/co/ana/fmc/ops/boundary/server/atsri/usecasecontrol/AtsriDataReceiveUCControl.java
+      📦 jp.co.ana.fmc.ops.boundary.server.atsri.usecasecontrol
+      🔧 メソッド: 39個
+      📥 インポート: 41個
+
+   📊 深度別クラス数:
+     深度 0: 1クラス
+
+✅ 特化インデックス構築完了
