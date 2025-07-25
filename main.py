@@ -19,143 +19,84 @@ from utils import load_settings_and_resolve_paths
 
 def main():
     """メイン実行関数"""
-    print("🚀 Class Index Analyzer - Advanced Java Code Analysis Tool")
-    print("=" * 70)
+    print("🚀 特定Javaファイルから再帰的探索した特化クラスインデックス")
+    print("=" * 60)
     
     # コマンドライン引数の解析
     args = parse_arguments()
     
     try:
-        # targetが.javaファイルの場合、そのファイルから解析対象を決定
-        if args.target and args.target.endswith('.java'):
-            # ファイル名からクラス名を推定
-            file_name = os.path.basename(args.target)
-            class_name = file_name.replace('.java', '')
-            print(f"\n📄 Javaファイル指定: {args.target}")
-            print(f"🎯 推定クラス名: {class_name}")
-            
-            # クラス名で解析を実行
-            if not args.trace_dependencies and not getattr(args, 'class') and not args.method:
-                # 何も指定されていない場合は、そのクラスの依存関係を追跡
-                args.trace_dependencies = class_name
+        # Javaファイルの検証
+        if not args.java_file.endswith('.java'):
+            raise Exception("Javaファイル（.java）を指定してください")
         
-        # Step 1: クラスインデックス構築
-        print("\n📚 Step 1: クラスインデックス構築")
-        class_indexer = build_class_index(args)
+        if not os.path.exists(args.java_file):
+            raise Exception(f"ファイルが見つかりません: {args.java_file}")
         
-        # Step 2: インデックス情報の表示・分析
-        print("\n🔍 Step 2: クラスインデックス分析")
-        analyze_class_index(class_indexer, args)
+        # ファイル名からクラス名を推定
+        file_name = os.path.basename(args.java_file)
+        class_name = file_name.replace('.java', '')
         
-        print("\n✅ 解析完了")
+        print(f"\n📄 起点Javaファイル: {args.java_file}")
+        print(f"🎯 起点クラス名: {class_name}")
+        print(f"📏 最大探索深度: {args.max_depth}")
+        
+        # Step 1: 基本クラスインデックス構築
+        print("\n📚 Step 1: 基本クラスインデックス構築")
+        base_indexer = build_base_class_index(args)
+        
+        # Step 2: 特化クラスインデックス構築
+        print("\n🔍 Step 2: 特化クラスインデックス構築")
+        specialized_index = build_specialized_index(base_indexer, class_name, args.max_depth)
+        
+        # Step 3: 結果表示
+        print("\n📊 Step 3: 結果表示")
+        display_specialized_index(specialized_index)
+        
+        print("\n✅ 特化インデックス構築完了")
         
     except KeyboardInterrupt:
-        print("\n\n⚠️  解析が中断されました")
+        print("\n\n⚠️  処理が中断されました")
         sys.exit(1)
     except Exception as e:
-        print(f"\n❌ 予期しないエラーが発生しました: {e}")
-        import traceback
-        traceback.print_exc()
+        print(f"\n❌ エラー: {e}")
         sys.exit(1)
 
 
 def parse_arguments():
     """コマンドライン引数の解析"""
     parser = argparse.ArgumentParser(
-        description="Class Index Analyzer - クラスインデックスを活用した解析ツール",
+        description="特定Javaファイルから再帰的に探索した特化クラスインデックス",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 使用例:
-  # 特定のJavaファイルを解析
-  python main.py UserService.java --settings test_settings.json
-  
-  # 設定ファイルのみで解析  
-  python main.py --settings .vscode/settings.json
-  
-  # ディレクトリを解析
-  python main.py /path/to/java/src --settings .vscode/settings.json
-  
-  # 特定クラスの詳細情報表示
-  python main.py --settings .vscode/settings.json --class EventEntity
-  
-  # 特定Javaファイルの依存関係を追跡
+  # 特定のJavaファイルから再帰的インデックス構築
   python main.py DataAccessUtil.java --settings test_settings.json
         """
     )
     
     parser.add_argument(
-        'target',
-        nargs='?',
-        help='解析対象のJavaファイルまたはディレクトリ'
+        'java_file',
+        help='解析対象のJavaファイル'
     )
     
     parser.add_argument(
         '--settings',
-        help='設定ファイルパス（複数ソースパス指定用）'
-    )
-    
-    parser.add_argument(
-        '--class',
-        help='特定クラスの詳細情報を表示'
-    )
-    
-    parser.add_argument(
-        '--method',
-        help='特定メソッド名を含むクラスを検索'
-    )
-    
-    parser.add_argument(
-        '--inheritance',
-        help='特定クラスの継承関係を分析'
-    )
-    
-    parser.add_argument(
-        '--output', 
-        default='output',
-        help='出力ディレクトリ (デフォルト: output)'
-    )
-    
-    parser.add_argument(
-        '--no-cache',
-        action='store_true',
-        help='クラスインデックスキャッシュを使用しない'
-    )
-    
-    parser.add_argument(
-        '--verbose', '-v',
-        action='store_true',
-        help='詳細ログを出力'
-    )
-    
-    parser.add_argument(
-        '--show-all-methods',
-        action='store_true',
-        help='クラスの全メソッドを表示（--classと組み合わせて使用）'
-    )
-    
-    parser.add_argument(
-        '--show-all-imports',
-        action='store_true',
-        help='クラスの全インポートを表示（--classと組み合わせて使用）'
-    )
-    
-    parser.add_argument(
-        '--trace-dependencies',
-        help='特定クラス.メソッドの依存関係を追跡解析（例: DataAccessUtil.checkUserExists）'
+        required=True,
+        help='設定ファイルパス'
     )
     
     parser.add_argument(
         '--max-depth',
         type=int,
-        default=3,
-        help='依存関係追跡の最大深度（デフォルト: 3）'
+        default=5,
+        help='再帰探索の最大深度（デフォルト: 5）'
     )
-    
     
     return parser.parse_args()
 
 
-def build_class_index(args) -> MultiSourceClassIndexer:
+def build_base_class_index(args) -> MultiSourceClassIndexer:
     """クラスインデックスを構築"""
     
     # 設定ファイルから複数ソースパスを取得
@@ -177,38 +118,28 @@ def build_class_index(args) -> MultiSourceClassIndexer:
             
         except Exception as e:
             print(f"⚠️  設定ファイル読み込みエラー: {e}")
-            if args.target:
-                print("   → コマンドライン指定の解析対象を使用")
+            pass
     elif args.settings:
         print(f"❌ 設定ファイルが見つかりません: {args.settings}")
-        if not args.target:
-            raise Exception("設定ファイルが見つからず、解析対象も指定されていません")
+        pass  # 設定ファイルが見つからない場合はフォールバックを使用
     
-    # フォールバック：コマンドライン引数のtargetを使用
+    # フォールバック：Javaファイルの親ディレクトリを使用
     if not source_paths:
-        if not args.target:
-            raise Exception("解析対象のソースパスが指定されていません。--settingsまたはtargetを指定してください")
-        # targetがディレクトリの場合はそのまま使用
-        if os.path.isdir(args.target):
-            source_paths = [args.target]
-            print(f"📁 コマンドライン指定ディレクトリを使用: {args.target}")
+        parent_dir = os.path.dirname(args.java_file)
+        if parent_dir:
+            source_paths = [parent_dir]
+            print(f"📁 Javaファイルの親ディレクトリを使用: {parent_dir}")
         else:
-            # ファイルの場合は親ディレクトリを使用
-            parent_dir = os.path.dirname(args.target)
-            if parent_dir:
-                source_paths = [parent_dir]
-                print(f"📁 ファイルの親ディレクトリを使用: {parent_dir}")
-            else:
-                raise Exception(f"ファイル {args.target} の親ディレクトリが特定できません")
+            source_paths = ['.']
+            print(f"📁 現在のディレクトリを使用")
     
     # クラスインデックス構築
     print("🔨 クラスインデックス構築開始...")
     
     indexer = MultiSourceClassIndexer()
     
-    # キャッシュ設定
-    use_cache = not args.no_cache
-    indexer.cache_enabled = use_cache
+    # キャッシュ設定（デフォルトで有効）
+    indexer.cache_enabled = True
     
     # 存在するソースパスのみフィルタ
     valid_source_paths = []
@@ -232,337 +163,111 @@ def build_class_index(args) -> MultiSourceClassIndexer:
     return indexer
 
 
-def analyze_class_index(indexer: MultiSourceClassIndexer, args):
-    """クラスインデックスの分析・活用"""
+def build_specialized_index(base_indexer: MultiSourceClassIndexer, start_class: str, max_depth: int) -> dict:
+    """特定クラスから再帰的に探索した特化インデックスを構築"""
     
-    # 基本統計情報の表示
-    print("\n📊 クラスインデックス統計:")
+    specialized_index = {}
+    visited = set()
     
-    # クラス数統計
-    unique_classes = set()
-    for key, class_info in indexer.class_index.items():
-        if '@' not in key:  # 基本キーのみカウント
-            unique_classes.add(class_info.class_name)
+    print(f"   🎯 起点クラス: {start_class}")
+    print(f"   🔄 再帰的探索開始...")
     
-    print(f"   📦 総クラス数: {len(unique_classes)}")
+    # 再帰的に依存関係を探索してインデックスを構築
+    _build_recursive(base_indexer, start_class, 0, max_depth, visited, specialized_index)
     
-    # ソースパス別統計
-    source_path_stats = {}
-    for key, class_info in indexer.class_index.items():
-        if '@' in key and class_info.source_path:
-            source_path = class_info.source_path
-            if source_path not in source_path_stats:
-                source_path_stats[source_path] = 0
-            source_path_stats[source_path] += 1
+    print(f"   📦 特化インデックス構築完了: {len(specialized_index)}クラス")
     
-    print(f"   📁 ソースパス別クラス数:")
-    for source_path, count in source_path_stats.items():
-        print(f"      - {source_path}: {count}クラス")
-    
-    # 特定クラスの詳細表示
-    if getattr(args, 'class'):
-        print(f"\n🔍 クラス詳細情報: {getattr(args, 'class')}")
-        display_class_details(indexer, getattr(args, 'class'), args.show_all_methods, args.show_all_imports)
-    
-    # メソッド検索
-    if args.method:
-        print(f"\n🔍 メソッド検索: {args.method}")
-        search_methods(indexer, args.method)
-    
-    # 継承関係分析
-    if args.inheritance:
-        print(f"\n🔍 継承関係分析: {args.inheritance}")
-        analyze_inheritance(indexer, args.inheritance)
-    
-    # 依存関係追跡
-    if args.trace_dependencies:
-        print(f"\n🔍 依存関係追跡: {args.trace_dependencies}")
-        print(f"📏 最大深度: {args.max_depth}")
-        trace_method_dependencies_recursive(indexer, args.trace_dependencies, args.max_depth)
-    
+    return specialized_index
 
 
-def display_class_details(indexer: MultiSourceClassIndexer, class_name: str, show_all_methods: bool = False, show_all_imports: bool = False):
-    """特定クラスの詳細情報を表示"""
-    
-    # クラス検索
-    class_info = indexer.get_class_info(class_name)
-    
-    if not class_info:
-        print(f"   ⚠️  クラス '{class_name}' が見つかりませんでした")
-        return
-    
-    print(f"   📄 ファイル: {class_info.file_path}")
-    print(f"   📦 パッケージ: {class_info.package_name}")
-    print(f"   📁 ソースパス: {class_info.source_path}")
-    
-    # メソッド一覧
-    if class_info.methods:
-        print(f"   🔧 メソッド数: {len(class_info.methods)}")
-        print("   📋 メソッド一覧:")
-        
-        if show_all_methods:
-            # 全メソッドを表示
-            for method_name, method_info in class_info.methods.items():
-                params = ', '.join(method_info.parameters)
-                print(f"      - {method_info.return_type} {method_name}({params})")
-        else:
-            # 最初の10個のみ表示
-            for method_name, method_info in list(class_info.methods.items())[:10]:
-                params = ', '.join(method_info.parameters)
-                print(f"      - {method_info.return_type} {method_name}({params})")
-            
-            if len(class_info.methods) > 10:
-                print(f"      ... 他 {len(class_info.methods) - 10} メソッド（--show-all-methodsで全表示）")
-    
-    # インポート一覧
-    if class_info.imports:
-        print(f"   📥 インポート数: {len(class_info.imports)}")
-        print("   📋 主要インポート:")
-        for imp in class_info.imports[:5]:
-            print(f"      - {imp}")
-        
-        if len(class_info.imports) > 5:
-            print(f"      ... 他 {len(class_info.imports) - 5} インポート")
-
-
-def search_methods(indexer: MultiSourceClassIndexer, method_pattern: str):
-    """メソッド名でクラスを検索"""
-    
-    found_classes = []
-    method_pattern_lower = method_pattern.lower()
-    
-    for key, class_info in indexer.class_index.items():
-        if '@' in key:  # ソース特定版はスキップ
-            continue
-            
-        for method_name in class_info.methods:
-            if method_pattern_lower in method_name.lower():
-                found_classes.append((class_info, method_name))
-                break
-    
-    if found_classes:
-        print(f"   📋 '{method_pattern}' を含むメソッドを持つクラス: {len(found_classes)}個")
-        for class_info, method_name in found_classes[:10]:
-            print(f"      - {class_info.class_name}.{method_name}() ({class_info.file_path})")
-        
-        if len(found_classes) > 10:
-            print(f"      ... 他 {len(found_classes) - 10} クラス")
-    else:
-        print(f"   ⚠️  '{method_pattern}' を含むメソッドが見つかりませんでした")
-
-
-def analyze_inheritance(indexer: MultiSourceClassIndexer, base_class: str):
-    """継承関係の分析（簡易版）"""
-    
-    print(f"   ℹ️  継承関係の分析は将来的に実装予定です")
-    print(f"   📋 現在のクラスインデックスには継承情報が含まれていません")
-
-
-def trace_method_dependencies_recursive(indexer: MultiSourceClassIndexer, target_spec: str, max_depth: int = 3):
-    """特定メソッドの依存関係を再帰的に追跡"""
-    
-    visited = set()  # 循環参照回避
-    dependency_tree = {}  # 依存関係ツリー
-    
-    print(f"   🌳 再帰的依存関係解析開始...")
-    
-    # 再帰的に依存関係を追跡
-    trace_recursive(indexer, target_spec, 0, max_depth, visited, dependency_tree)
-    
-    # 結果を表示
-    display_dependency_tree(dependency_tree, max_depth)
-
-
-def trace_recursive(indexer: MultiSourceClassIndexer, target_spec: str, current_depth: int, max_depth: int, visited: set, dependency_tree: dict) -> dict:
-    """再帰的に依存関係を追跡する内部関数"""
+def _build_recursive(base_indexer: MultiSourceClassIndexer, target_class: str, current_depth: int, max_depth: int, visited: set, specialized_index: dict):
+    """再帰的にクラス依存関係を探索してインデックスに追加"""
     
     if current_depth >= max_depth:
-        return {}
+        return
     
-    if target_spec in visited:
-        return {"circular_reference": True}
+    if target_class in visited:
+        return
     
-    visited.add(target_spec)
+    visited.add(target_class)
     
-    # Step 1: クラス.メソッド形式の解析
-    if '.' in target_spec:
-        class_name, method_name = target_spec.split('.', 1)
-    else:
-        class_name = target_spec
-        method_name = None
-    
-    # Step 2: クラス情報取得
-    class_info = indexer.get_class_info(class_name)
+    # ベースインデックスからクラス情報を取得
+    class_info = base_indexer.get_class_info(target_class)
     if not class_info:
-        return {"error": f"クラス '{class_name}' が見つかりません"}
+        return
     
-    if method_name and method_name not in class_info.methods:
-        return {"error": f"メソッド '{method_name}' が見つかりません"}
-    
-    # Step 3: ファイル内容を詳細解析
-    try:
-        with open(class_info.file_path, 'r', encoding='utf-8') as f:
-            file_content = f.read()
-    except Exception as e:
-        return {"error": f"ファイル読み込みエラー: {e}"}
-    
-    # Step 4: メソッド呼び出しパターンを抽出
-    if method_name:
-        method_calls = extract_method_calls_from_specific_method(file_content, method_name, class_info.imports)
-    else:
-        method_calls = extract_method_calls(file_content, class_info.imports)
-    
-    # Step 5: 呼び出し先をクラスインデックスで解決
-    resolved_calls = resolve_method_calls(indexer, method_calls, class_info.imports)
-    
-    # Step 6: 依存関係ツリーを構築
-    current_node = {
-        "target": target_spec,
-        "class_name": class_name,
-        "method_name": method_name,
-        "file_path": class_info.file_path,
-        "depth": current_depth,
-        "dependencies": {},
-        "resolved_calls": resolved_calls
+    # 特化インデックスに追加
+    specialized_index[target_class] = {
+        'class_name': class_info.class_name,
+        'file_path': class_info.file_path,
+        'package_name': class_info.package_name,
+        'methods': dict(class_info.methods) if class_info.methods else {},
+        'imports': list(class_info.imports) if class_info.imports else [],
+        'depth': current_depth,
+        'dependencies': []
     }
     
-    # Step 7: 解決できた依存関係を再帰的に追跡
-    for call in resolved_calls:
-        if call.get('resolved', False):
-            target_class = call['target_class']  
-            target_method = call['target_method']
-            next_target = f"{target_class}.{target_method}" if target_method != 'constructor' else target_class
-            
-            # 再帰的に追跡
-            if next_target not in visited:
-                child_deps = trace_recursive(indexer, next_target, current_depth + 1, max_depth, visited.copy(), dependency_tree)
-                if child_deps:
-                    current_node["dependencies"][next_target] = child_deps
+    print(f"   {'  ' * current_depth}├─ {target_class} (深度: {current_depth})")
     
-    visited.remove(target_spec)
-    dependency_tree[target_spec] = current_node
-    return current_node
-
-
-def display_dependency_tree(dependency_tree: dict, max_depth: int):
-    """依存関係ツリーを表示"""
-    
-    if not dependency_tree:
-        print("   ⚠️  依存関係が見つかりませんでした")
-        return
-    
-    print(f"   🌳 依存関係ツリー（最大深度: {max_depth}）:")
-    print()
-    
-    # ルートノードから表示
-    for root_target, root_node in dependency_tree.items():
-        if root_node.get('depth', 0) == 0:
-            display_tree_node(root_node, 0, set())
-            break
-
-
-def display_tree_node(node: dict, indent_level: int, shown_nodes: set):
-    """ツリーノードを再帰的に表示"""
-    
-    if node.get("error"):
-        print("   " + "  " * indent_level + f"❌ {node['error']}")
-        return
-    
-    if node.get("circular_reference"):
-        print("   " + "  " * indent_level + f"🔄 循環参照")
-        return
-    
-    target = node.get("target", "Unknown")
-    file_path = node.get("file_path", "")
-    depth = node.get("depth", 0)
-    
-    # 表示用のインデント
-    indent = "   " + "  " * indent_level
-    
-    if indent_level == 0:
-        print(f"{indent}📍 {target} (深度: {depth})")
-    else:
-        print(f"{indent}├─ {target} (深度: {depth})")
-    
-    if file_path:
-        print(f"{indent}   📄 {file_path}")
-    
-    # 解決できた呼び出しを表示
-    resolved_calls = node.get("resolved_calls", [])
-    resolved_count = len([call for call in resolved_calls if call.get('resolved', False)])
-    total_count = len(resolved_calls)
-    
-    if total_count > 0:
-        print(f"{indent}   📊 メソッド呼び出し: {resolved_count}/{total_count} 解決")
-    
-    # 依存関係を再帰的に表示
-    dependencies = node.get("dependencies", {})
-    if dependencies:
-        print(f"{indent}   🔗 依存関係 ({len(dependencies)}個):")
-        for dep_target, dep_node in dependencies.items():
-            if dep_target not in shown_nodes:
-                shown_nodes.add(dep_target)
-                display_tree_node(dep_node, indent_level + 1, shown_nodes)
-            else:
-                print(f"{indent}     ├─ {dep_target} (既に表示済み)")
-    
-    print()
-
-
-def trace_method_dependencies(indexer: MultiSourceClassIndexer, target_spec: str):
-    """特定メソッドの依存関係を詳細追跡"""
-    
-    # Step 1: クラス.メソッド形式の解析
-    if '.' in target_spec:
-        class_name, method_name = target_spec.split('.', 1)
-    else:
-        class_name = target_spec
-        method_name = None
-    
-    # Step 2: クラス情報取得
-    class_info = indexer.get_class_info(class_name)
-    if not class_info:
-        print(f"   ⚠️  クラス '{class_name}' が見つかりませんでした")
-        return
-    
-    print(f"   📄 解析対象: {class_info.file_path}")
-    print(f"   📦 パッケージ: {class_info.package_name}")
-    
-    if method_name:
-        if method_name not in class_info.methods:
-            print(f"   ⚠️  メソッド '{method_name}' が見つかりませんでした")
-            return
-        print(f"   🎯 対象メソッド: {method_name}")
-    else:
-        print(f"   🎯 対象: クラス全体")
-    
-    # Step 3: ファイル内容を詳細解析
+    # ファイル内容を解析してメソッド呼び出しを抽出
     try:
         with open(class_info.file_path, 'r', encoding='utf-8') as f:
             file_content = f.read()
         
-        print(f"   🔍 メソッド呼び出し解析開始...")
+        # メソッド呼び出しを抽出
+        method_calls = extract_method_calls(file_content, class_info.imports)
+        resolved_calls = resolve_method_calls(base_indexer, method_calls, class_info.imports)
         
-        # Step 4: メソッド呼び出しパターンを抽出（特定メソッド内のみ）
-        if method_name:
-            method_calls = extract_method_calls_from_specific_method(file_content, method_name, class_info.imports)
-        else:
-            method_calls = extract_method_calls(file_content, class_info.imports)
-        
-        if method_calls:
-            print(f"   📋 発見されたメソッド呼び出し: {len(method_calls)}個")
-            
-            # Step 5: 呼び出し先をクラスインデックスで解決
-            resolved_calls = resolve_method_calls(indexer, method_calls, class_info.imports)
-            
-            # Step 6: 結果表示
-            display_dependency_trace(resolved_calls)
-        else:
-            print(f"   ⚠️  メソッド呼び出しが見つかりませんでした")
-            
+        # 解決できた依存関係を再帰的に探索
+        for call in resolved_calls:
+            if call.get('resolved', False):
+                target_class_name = call['target_class']
+                if target_class_name not in visited:
+                    specialized_index[target_class]['dependencies'].append(target_class_name)
+                    _build_recursive(base_indexer, target_class_name, current_depth + 1, max_depth, visited, specialized_index)
+    
     except Exception as e:
-        print(f"   ❌ ファイル解析エラー: {e}")
+        print(f"   {'  ' * current_depth}  ⚠️ ファイル読み込みエラー: {e}")
+
+
+def display_specialized_index(specialized_index: dict):
+    """特化インデックスの内容を表示"""
+    
+    if not specialized_index:
+        print("   ⚠️ 特化インデックスが空です")
+        return
+    
+    print(f"   📦 特化インデックス内容: {len(specialized_index)}クラス")
+    print()
+    
+    # 深度順にソート
+    sorted_classes = sorted(specialized_index.items(), key=lambda x: x[1]['depth'])
+    
+    for class_name, info in sorted_classes:
+        indent = "   " + "  " * info['depth']
+        print(f"{indent}📍 {class_name} (深度: {info['depth']})")
+        print(f"{indent}   📄 {info['file_path']}")
+        print(f"{indent}   📦 {info['package_name']}")
+        print(f"{indent}   🔧 メソッド: {len(info['methods'])}個")
+        print(f"{indent}   📥 インポート: {len(info['imports'])}個")
+        
+        if info['dependencies']:
+            print(f"{indent}   🔗 依存: {', '.join(info['dependencies'])}")
+        
+        print()
+    
+    # サマリー
+    depth_counts = {}
+    for info in specialized_index.values():
+        depth = info['depth']
+        depth_counts[depth] = depth_counts.get(depth, 0) + 1
+    
+    print("   📊 深度別クラス数:")
+    for depth in sorted(depth_counts.keys()):
+        print(f"     深度 {depth}: {depth_counts[depth]}クラス")
+
+
+# ここから下は既存のメソッド抽出・解決関数を再利用
 
 
 def extract_method_calls_from_specific_method(file_content: str, target_method: str, imports: list) -> list:
