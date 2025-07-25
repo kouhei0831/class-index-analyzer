@@ -26,6 +26,19 @@ def main():
     args = parse_arguments()
     
     try:
+        # targetが.javaファイルの場合、そのファイルから解析対象を決定
+        if args.target and args.target.endswith('.java'):
+            # ファイル名からクラス名を推定
+            file_name = os.path.basename(args.target)
+            class_name = file_name.replace('.java', '')
+            print(f"\n📄 Javaファイル指定: {args.target}")
+            print(f"🎯 推定クラス名: {class_name}")
+            
+            # クラス名で解析を実行
+            if not args.trace_dependencies and not getattr(args, 'class') and not args.method:
+                # 何も指定されていない場合は、そのクラスの依存関係を追跡
+                args.trace_dependencies = class_name
+        
         # Step 1: クラスインデックス構築
         print("\n📚 Step 1: クラスインデックス構築")
         class_indexer = build_class_index(args)
@@ -53,30 +66,27 @@ def parse_arguments():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 使用例:
-  # 設定ファイルのみで解析
+  # 特定のJavaファイルを解析
+  python main.py UserService.java --settings test_settings.json
+  
+  # 設定ファイルのみで解析  
   python main.py --settings .vscode/settings.json
   
-  # 基本的な解析
-  python main.py /path/to/java/src
-  
-  # 設定ファイル指定（複数ソースパス対応）
+  # ディレクトリを解析
   python main.py /path/to/java/src --settings .vscode/settings.json
   
   # 特定クラスの詳細情報表示
   python main.py --settings .vscode/settings.json --class EventEntity
   
-  # メソッド検索
-  python main.py --settings .vscode/settings.json --method insert
-  
-  # キャッシュ無効化
-  python main.py --settings .vscode/settings.json --no-cache
+  # 特定Javaファイルの依存関係を追跡
+  python main.py DataAccessUtil.java --settings test_settings.json
         """
     )
     
     parser.add_argument(
-        'directory',
+        'target',
         nargs='?',
-        help='解析対象のJavaソースディレクトリ（--settings使用時は省略可）'
+        help='解析対象のJavaファイルまたはディレクトリ'
     )
     
     parser.add_argument(
@@ -134,6 +144,14 @@ def parse_arguments():
         help='特定クラス.メソッドの依存関係を追跡解析（例: DataAccessUtil.checkUserExists）'
     )
     
+    parser.add_argument(
+        '--max-depth',
+        type=int,
+        default=3,
+        help='依存関係追跡の最大深度（デフォルト: 3）'
+    )
+    
+    
     return parser.parse_args()
 
 
@@ -159,19 +177,29 @@ def build_class_index(args) -> MultiSourceClassIndexer:
             
         except Exception as e:
             print(f"⚠️  設定ファイル読み込みエラー: {e}")
-            if args.directory:
-                print("   → コマンドライン指定ディレクトリを使用")
+            if args.target:
+                print("   → コマンドライン指定の解析対象を使用")
     elif args.settings:
         print(f"❌ 設定ファイルが見つかりません: {args.settings}")
-        if not args.directory:
-            raise Exception("設定ファイルが見つからず、ディレクトリも指定されていません")
+        if not args.target:
+            raise Exception("設定ファイルが見つからず、解析対象も指定されていません")
     
-    # フォールバック：コマンドライン引数のディレクトリを使用
+    # フォールバック：コマンドライン引数のtargetを使用
     if not source_paths:
-        if not args.directory:
-            raise Exception("解析対象のソースパスが指定されていません。--settingsまたはdirectoryを指定してください")
-        source_paths = [args.directory]
-        print(f"📁 コマンドライン指定ディレクトリを使用: {args.directory}")
+        if not args.target:
+            raise Exception("解析対象のソースパスが指定されていません。--settingsまたはtargetを指定してください")
+        # targetがディレクトリの場合はそのまま使用
+        if os.path.isdir(args.target):
+            source_paths = [args.target]
+            print(f"📁 コマンドライン指定ディレクトリを使用: {args.target}")
+        else:
+            # ファイルの場合は親ディレクトリを使用
+            parent_dir = os.path.dirname(args.target)
+            if parent_dir:
+                source_paths = [parent_dir]
+                print(f"📁 ファイルの親ディレクトリを使用: {parent_dir}")
+            else:
+                raise Exception(f"ファイル {args.target} の親ディレクトリが特定できません")
     
     # クラスインデックス構築
     print("🔨 クラスインデックス構築開始...")
@@ -249,7 +277,9 @@ def analyze_class_index(indexer: MultiSourceClassIndexer, args):
     # 依存関係追跡
     if args.trace_dependencies:
         print(f"\n🔍 依存関係追跡: {args.trace_dependencies}")
-        trace_method_dependencies(indexer, args.trace_dependencies)
+        print(f"📏 最大深度: {args.max_depth}")
+        trace_method_dependencies_recursive(indexer, args.trace_dependencies, args.max_depth)
+    
 
 
 def display_class_details(indexer: MultiSourceClassIndexer, class_name: str, show_all_methods: bool = False, show_all_imports: bool = False):
@@ -327,6 +357,157 @@ def analyze_inheritance(indexer: MultiSourceClassIndexer, base_class: str):
     
     print(f"   ℹ️  継承関係の分析は将来的に実装予定です")
     print(f"   📋 現在のクラスインデックスには継承情報が含まれていません")
+
+
+def trace_method_dependencies_recursive(indexer: MultiSourceClassIndexer, target_spec: str, max_depth: int = 3):
+    """特定メソッドの依存関係を再帰的に追跡"""
+    
+    visited = set()  # 循環参照回避
+    dependency_tree = {}  # 依存関係ツリー
+    
+    print(f"   🌳 再帰的依存関係解析開始...")
+    
+    # 再帰的に依存関係を追跡
+    trace_recursive(indexer, target_spec, 0, max_depth, visited, dependency_tree)
+    
+    # 結果を表示
+    display_dependency_tree(dependency_tree, max_depth)
+
+
+def trace_recursive(indexer: MultiSourceClassIndexer, target_spec: str, current_depth: int, max_depth: int, visited: set, dependency_tree: dict) -> dict:
+    """再帰的に依存関係を追跡する内部関数"""
+    
+    if current_depth >= max_depth:
+        return {}
+    
+    if target_spec in visited:
+        return {"circular_reference": True}
+    
+    visited.add(target_spec)
+    
+    # Step 1: クラス.メソッド形式の解析
+    if '.' in target_spec:
+        class_name, method_name = target_spec.split('.', 1)
+    else:
+        class_name = target_spec
+        method_name = None
+    
+    # Step 2: クラス情報取得
+    class_info = indexer.get_class_info(class_name)
+    if not class_info:
+        return {"error": f"クラス '{class_name}' が見つかりません"}
+    
+    if method_name and method_name not in class_info.methods:
+        return {"error": f"メソッド '{method_name}' が見つかりません"}
+    
+    # Step 3: ファイル内容を詳細解析
+    try:
+        with open(class_info.file_path, 'r', encoding='utf-8') as f:
+            file_content = f.read()
+    except Exception as e:
+        return {"error": f"ファイル読み込みエラー: {e}"}
+    
+    # Step 4: メソッド呼び出しパターンを抽出
+    if method_name:
+        method_calls = extract_method_calls_from_specific_method(file_content, method_name, class_info.imports)
+    else:
+        method_calls = extract_method_calls(file_content, class_info.imports)
+    
+    # Step 5: 呼び出し先をクラスインデックスで解決
+    resolved_calls = resolve_method_calls(indexer, method_calls, class_info.imports)
+    
+    # Step 6: 依存関係ツリーを構築
+    current_node = {
+        "target": target_spec,
+        "class_name": class_name,
+        "method_name": method_name,
+        "file_path": class_info.file_path,
+        "depth": current_depth,
+        "dependencies": {},
+        "resolved_calls": resolved_calls
+    }
+    
+    # Step 7: 解決できた依存関係を再帰的に追跡
+    for call in resolved_calls:
+        if call.get('resolved', False):
+            target_class = call['target_class']  
+            target_method = call['target_method']
+            next_target = f"{target_class}.{target_method}" if target_method != 'constructor' else target_class
+            
+            # 再帰的に追跡
+            if next_target not in visited:
+                child_deps = trace_recursive(indexer, next_target, current_depth + 1, max_depth, visited.copy(), dependency_tree)
+                if child_deps:
+                    current_node["dependencies"][next_target] = child_deps
+    
+    visited.remove(target_spec)
+    dependency_tree[target_spec] = current_node
+    return current_node
+
+
+def display_dependency_tree(dependency_tree: dict, max_depth: int):
+    """依存関係ツリーを表示"""
+    
+    if not dependency_tree:
+        print("   ⚠️  依存関係が見つかりませんでした")
+        return
+    
+    print(f"   🌳 依存関係ツリー（最大深度: {max_depth}）:")
+    print()
+    
+    # ルートノードから表示
+    for root_target, root_node in dependency_tree.items():
+        if root_node.get('depth', 0) == 0:
+            display_tree_node(root_node, 0, set())
+            break
+
+
+def display_tree_node(node: dict, indent_level: int, shown_nodes: set):
+    """ツリーノードを再帰的に表示"""
+    
+    if node.get("error"):
+        print("   " + "  " * indent_level + f"❌ {node['error']}")
+        return
+    
+    if node.get("circular_reference"):
+        print("   " + "  " * indent_level + f"🔄 循環参照")
+        return
+    
+    target = node.get("target", "Unknown")
+    file_path = node.get("file_path", "")
+    depth = node.get("depth", 0)
+    
+    # 表示用のインデント
+    indent = "   " + "  " * indent_level
+    
+    if indent_level == 0:
+        print(f"{indent}📍 {target} (深度: {depth})")
+    else:
+        print(f"{indent}├─ {target} (深度: {depth})")
+    
+    if file_path:
+        print(f"{indent}   📄 {file_path}")
+    
+    # 解決できた呼び出しを表示
+    resolved_calls = node.get("resolved_calls", [])
+    resolved_count = len([call for call in resolved_calls if call.get('resolved', False)])
+    total_count = len(resolved_calls)
+    
+    if total_count > 0:
+        print(f"{indent}   📊 メソッド呼び出し: {resolved_count}/{total_count} 解決")
+    
+    # 依存関係を再帰的に表示
+    dependencies = node.get("dependencies", {})
+    if dependencies:
+        print(f"{indent}   🔗 依存関係 ({len(dependencies)}個):")
+        for dep_target, dep_node in dependencies.items():
+            if dep_target not in shown_nodes:
+                shown_nodes.add(dep_target)
+                display_tree_node(dep_node, indent_level + 1, shown_nodes)
+            else:
+                print(f"{indent}     ├─ {dep_target} (既に表示済み)")
+    
+    print()
 
 
 def trace_method_dependencies(indexer: MultiSourceClassIndexer, target_spec: str):
