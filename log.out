@@ -32,6 +32,9 @@
    🎯 起点クラス: AtsriDataReceiveUCControl
    🔄 メソッド単位の再帰的探索開始...
    ├─ AtsriDataReceiveUCControl (深度: 0) [起点ファイル - 全メソッド探査]
+     📋 使用メソッド名: 201種類
+       add, analysisMessage, append, batchUpdateAtsri, clearUpdNullCol, convIataToIcao, convIcaoToIata, convertLatitude, convertLongitude, debug
+       ... 他191個
      ├─ ATSRIControlEntityManager.constructor() (深度: 1)
      ├─ AircraftTargetInformationValue.constructor() (深度: 1)
      ├─ ATSRIRcvDataEntityORMapper.constructor() (深度: 1)
