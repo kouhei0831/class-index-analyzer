@@ -215,9 +215,20 @@ def _build_recursive_from_start_file(base_indexer: MultiSourceClassIndexer, star
         
         # ファイル全体からメソッド呼び出しを抽出
         method_calls = extract_method_calls(file_content, start_class_info.imports)
-        print(f"   {'  ' * current_depth}  🔍 検出メソッド呼び出し: {len(method_calls)}個")
-        for call in method_calls[:5]:  # 最初の5個を表示
-            print(f"   {'  ' * current_depth}    - {call.get('pattern', 'N/A')}")
+        
+        # メソッド名のリストを作成（重複除去）
+        method_names = set()
+        for call in method_calls:
+            method_name = call.get('method', '')
+            if method_name and method_name != 'constructor':
+                method_names.add(method_name)
+        
+        print(f"   {'  ' * current_depth}  📋 使用メソッド名: {len(method_names)}種類")
+        sorted_methods = sorted(method_names)[:10]  # 最初の10個をアルファベット順
+        print(f"   {'  ' * current_depth}    {', '.join(sorted_methods)}")
+        if len(method_names) > 10:
+            print(f"   {'  ' * current_depth}    ... 他{len(method_names) - 10}個")
+        
         resolved_calls = resolve_method_calls(base_indexer, method_calls, start_class_info.imports)
         
         # 解決できた依存関係を探索
