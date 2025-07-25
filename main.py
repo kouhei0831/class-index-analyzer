@@ -239,7 +239,7 @@ def _build_recursive_from_start_file(base_indexer: MultiSourceClassIndexer, star
             print(f"   {'  ' * current_depth}    ... 他{len(method_names) - 10}個")
         
         # 🆕 メソッド定義検索オプション
-        if len(method_names) <= 25:  # 詳細検索実行
+        if len(method_names) <= 100:  # 詳細検索実行（大規模プロジェクト対応）
             from smart_method_finder import batch_find_method_definitions
             print(f"   {'  ' * current_depth}  🔍 メソッド定義検索を実行中...")
             results = batch_find_method_definitions(list(method_names), start_class_info.imports, base_indexer, show_method_source)
