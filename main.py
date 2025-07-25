@@ -164,74 +164,142 @@ def build_base_class_index(args) -> MultiSourceClassIndexer:
 
 
 def build_specialized_index(base_indexer: MultiSourceClassIndexer, start_class: str, max_depth: int) -> dict:
-    """特定クラスから再帰的に探索した特化インデックスを構築"""
+    """特定クラスから再帰的に探索した特化インデックスを構築（メソッド単位）"""
     
     specialized_index = {}
-    visited = set()
+    visited_methods = set()  # メソッド単位の訪問管理
     
     print(f"   🎯 起点クラス: {start_class}")
-    print(f"   🔄 再帰的探索開始...")
+    print(f"   🔄 メソッド単位の再帰的探索開始...")
     
-    # 再帰的に依存関係を探索してインデックスを構築
-    _build_recursive(base_indexer, start_class, 0, max_depth, visited, specialized_index)
+    # 起点クラスのファイル情報を取得
+    start_class_info = base_indexer.get_class_info(start_class)
+    if not start_class_info:
+        print(f"   ❌ 起点クラスが見つかりません: {start_class}")
+        return specialized_index
+    
+    # 起点ファイルの全メソッドを探索対象とする
+    _build_recursive_from_start_file(base_indexer, start_class_info, 0, max_depth, visited_methods, specialized_index)
     
     print(f"   📦 特化インデックス構築完了: {len(specialized_index)}クラス")
     
     return specialized_index
 
 
-def _build_recursive(base_indexer: MultiSourceClassIndexer, target_class: str, current_depth: int, max_depth: int, visited: set, specialized_index: dict):
-    """再帰的にクラス依存関係を探索してインデックスに追加"""
+def _build_recursive_from_start_file(base_indexer: MultiSourceClassIndexer, start_class_info, current_depth: int, max_depth: int, visited_methods: set, specialized_index: dict):
+    """起点ファイルの全メソッドから再帰的探索を開始"""
     
     if current_depth >= max_depth:
         return
     
-    if target_class in visited:
-        return
+    # 起点クラスを特化インデックスに追加
+    start_class = start_class_info.class_name
+    if start_class not in specialized_index:
+        specialized_index[start_class] = {
+            'class_name': start_class_info.class_name,
+            'file_path': start_class_info.file_path,
+            'package_name': start_class_info.package_name,
+            'methods': dict(start_class_info.methods) if start_class_info.methods else {},
+            'imports': list(start_class_info.imports) if start_class_info.imports else [],
+            'depth': current_depth,
+            'used_methods': [],  # 起点ファイルでは全メソッドが対象
+            'dependencies': []
+        }
     
-    visited.add(target_class)
+    print(f"   {'  ' * current_depth}├─ {start_class} (深度: {current_depth}) [起点ファイル - 全メソッド探査]")
     
-    # ベースインデックスからクラス情報を取得
-    class_info = base_indexer.get_class_info(target_class)
-    if not class_info:
-        return
-    
-    # 特化インデックスに追加
-    specialized_index[target_class] = {
-        'class_name': class_info.class_name,
-        'file_path': class_info.file_path,
-        'package_name': class_info.package_name,
-        'methods': dict(class_info.methods) if class_info.methods else {},
-        'imports': list(class_info.imports) if class_info.imports else [],
-        'depth': current_depth,
-        'dependencies': []
-    }
-    
-    print(f"   {'  ' * current_depth}├─ {target_class} (深度: {current_depth})")
-    
-    # ファイル内容を解析してメソッド呼び出しを抽出
+    # 起点ファイルの内容を解析
     try:
         from utils import read_file_with_encoding
-        file_content = read_file_with_encoding(class_info.file_path)
+        file_content = read_file_with_encoding(start_class_info.file_path)
         
-        # メソッド呼び出しを抽出
-        method_calls = extract_method_calls(file_content, class_info.imports)
-        resolved_calls = resolve_method_calls(base_indexer, method_calls, class_info.imports)
+        # ファイル全体からメソッド呼び出しを抽出
+        method_calls = extract_method_calls(file_content, start_class_info.imports)
+        resolved_calls = resolve_method_calls(base_indexer, method_calls, start_class_info.imports)
         
-        # 解決できた依存関係を再帰的に探索
+        # 解決できた依存関係を探索
         for call in resolved_calls:
             if call.get('resolved', False):
                 target_class_name = call['target_class']
-                if target_class_name not in visited:
-                    specialized_index[target_class]['dependencies'].append(target_class_name)
-                    _build_recursive(base_indexer, target_class_name, current_depth + 1, max_depth, visited, specialized_index)
+                target_method_name = call['target_method']
+                method_key = f"{target_class_name}.{target_method_name}"
+                
+                # 既に訪問済みのメソッドはスキップ
+                if method_key in visited_methods:
+                    continue
+                
+                visited_methods.add(method_key)
+                specialized_index[start_class]['dependencies'].append(method_key)
+                
+                # 依存メソッドを再帰的に探索
+                _build_recursive_from_specific_method(base_indexer, target_class_name, target_method_name, current_depth + 1, max_depth, visited_methods, specialized_index)
     
     except Exception as e:
         print(f"   {'  ' * current_depth}  ⚠️ ファイル読み込みエラー: {e}")
 
 
+def _build_recursive_from_specific_method(base_indexer: MultiSourceClassIndexer, target_class: str, target_method: str, current_depth: int, max_depth: int, visited_methods: set, specialized_index: dict):
+    """特定メソッドから再帰的に依存関係を探索"""
+    
+    if current_depth >= max_depth:
+        return
+    
+    # クラス情報を取得
+    class_info = base_indexer.get_class_info(target_class)
+    if not class_info:
+        return
+    
+    # 特化インデックスにクラスを追加（初回のみ）
+    if target_class not in specialized_index:
+        specialized_index[target_class] = {
+            'class_name': class_info.class_name,
+            'file_path': class_info.file_path,
+            'package_name': class_info.package_name,
+            'methods': dict(class_info.methods) if class_info.methods else {},
+            'imports': list(class_info.imports) if class_info.imports else [],
+            'depth': current_depth,
+            'used_methods': [],  # 使用されたメソッドのみ記録
+            'dependencies': []
+        }
+    
+    # 使用メソッドを記録
+    if target_method not in specialized_index[target_class]['used_methods']:
+        specialized_index[target_class]['used_methods'].append(target_method)
+    
+    print(f"   {'  ' * current_depth}├─ {target_class}.{target_method}() (深度: {current_depth})")
+    
+    # 特定メソッドの内容のみを解析
+    try:
+        from utils import read_file_with_encoding
+        file_content = read_file_with_encoding(class_info.file_path)
+        
+        # 特定メソッド内からのみメソッド呼び出しを抽出
+        method_calls = extract_method_calls_from_specific_method(file_content, target_method, class_info.imports)
+        resolved_calls = resolve_method_calls(base_indexer, method_calls, class_info.imports)
+        
+        # 解決できた依存関係を再帰的に探索
+        for call in resolved_calls:
+            if call.get('resolved', False):
+                next_class = call['target_class']
+                next_method = call['target_method']
+                method_key = f"{next_class}.{next_method}"
+                
+                # 循環参照チェック
+                if method_key in visited_methods:
+                    continue
+                
+                visited_methods.add(method_key)
+                specialized_index[target_class]['dependencies'].append(method_key)
+                
+                # 再帰的に探索
+                _build_recursive_from_specific_method(base_indexer, next_class, next_method, current_depth + 1, max_depth, visited_methods, specialized_index)
+    
+    except Exception as e:
+        print(f"   {'  ' * current_depth}  ⚠️ メソッド解析エラー: {e}")
+
+
 def display_specialized_index(specialized_index: dict):
-    """特化インデックスの内容を表示"""
+    """特化インデックスの内容を表示（メソッド単位版）"""
     
     if not specialized_index:
         print("   ⚠️ 特化インデックスが空です")
@@ -248,23 +316,51 @@ def display_specialized_index(specialized_index: dict):
         print(f"{indent}📍 {class_name} (深度: {info['depth']})")
         print(f"{indent}   📄 {info['file_path']}")
         print(f"{indent}   📦 {info['package_name']}")
-        print(f"{indent}   🔧 メソッド: {len(info['methods'])}個")
+        
+        # 使用メソッド表示（起点ファイルは全メソッド、依存ファイルは使用メソッドのみ）
+        if info['depth'] == 0:
+            print(f"{indent}   🔧 全メソッド: {len(info['methods'])}個")
+        else:
+            used_methods = info.get('used_methods', [])
+            print(f"{indent}   🎯 使用メソッド: {len(used_methods)}個 ({', '.join(used_methods)})")
+        
         print(f"{indent}   📥 インポート: {len(info['imports'])}個")
         
         if info['dependencies']:
-            print(f"{indent}   🔗 依存: {', '.join(info['dependencies'])}")
+            print(f"{indent}   🔗 メソッド依存: {len(info['dependencies'])}個")
+            # 依存メソッドをクラス別にグループ化して表示
+            dep_by_class = {}
+            for dep in info['dependencies']:
+                if '.' in dep:
+                    cls, method = dep.split('.', 1)
+                    if cls not in dep_by_class:
+                        dep_by_class[cls] = []
+                    dep_by_class[cls].append(method)
+            
+            for dep_class, methods in dep_by_class.items():
+                print(f"{indent}     → {dep_class}: {', '.join(methods)}")
         
         print()
     
     # サマリー
     depth_counts = {}
+    method_counts = {}
     for info in specialized_index.values():
         depth = info['depth']
         depth_counts[depth] = depth_counts.get(depth, 0) + 1
+        
+        if depth == 0:
+            method_counts[depth] = len(info['methods'])  # 起点は全メソッド
+        else:
+            method_counts[depth] = method_counts.get(depth, 0) + len(info.get('used_methods', []))
     
     print("   📊 深度別クラス数:")
     for depth in sorted(depth_counts.keys()):
-        print(f"     深度 {depth}: {depth_counts[depth]}クラス")
+        method_count = method_counts.get(depth, 0)
+        if depth == 0:
+            print(f"     深度 {depth}: {depth_counts[depth]}クラス ({method_count}メソッド - 起点)")
+        else:
+            print(f"     深度 {depth}: {depth_counts[depth]}クラス ({method_count}使用メソッド)")
 
 
 # ここから下は既存のメソッド抽出・解決関数を再利用
